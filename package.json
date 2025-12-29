@@ -1,0 +1,27 @@
+{
+  "name": "holded-sync",
+  "version": "1.0.0",
+  "description": "Sync products and sales from WooCommerce & SumUp to Holded",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "sync": "node src/index.js",
+    "sync:products": "node src/index.js --products",
+    "sync:sales": "node src/index.js --sales",
+    "export": "node src/index.js --excel-only"
+  },
+  "dependencies": {
+    "@woocommerce/woocommerce-rest-api": "^1.0.1",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "exceljs": "^4.4.0",
+    "minimist": "^1.2.8",
+    "winston": "^3.11.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["holded", "woocommerce", "sumup", "sync"],
+  "license": "MIT"
+}

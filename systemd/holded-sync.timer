@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Holded Sync daily at 8 AM
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+Persistent=true
+# If the system was off at 8 AM, run when it comes back up
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
