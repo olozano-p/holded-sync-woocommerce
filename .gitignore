@@ -1,2 +1,7 @@
 .env
 .DS_STORE
+exports/
+logs/
+node_modules/
+package-lock.json
+

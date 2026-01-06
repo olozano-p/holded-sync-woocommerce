@@ -92,6 +92,11 @@ export async function fetchSumUpTransactions(dateFrom, dateTo) {
     return [];
   }
   
-  const client = new SumUpClient();
-  return client.getTransactions(dateFrom, dateTo);
+  try {
+    const client = new SumUpClient();
+    return await client.getTransactions(dateFrom, dateTo);
+  } catch (error) {
+    logger.error(`SumUp fetch failed: ${error.message}`);
+    return [];
+  }
 }

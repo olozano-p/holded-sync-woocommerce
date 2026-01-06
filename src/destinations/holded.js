@@ -109,7 +109,6 @@ export class HoldedClient {
       price: product.price,           // Precio venta (subtotal sin IVA)
       tax: config.sync.defaultVatRate,
       purchasePrice: product.cost || 0,
-      stock: product.stock || 0,
       tags: product.tags || [],
       kind: 'simple'                  // simple, variants, lots, pack
     };
