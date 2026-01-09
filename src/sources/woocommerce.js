@@ -145,8 +145,8 @@ export class WooCommerceClient {
         taxRate: this.calculateTaxRate(item),
         discount: 0
       })) || [],
-      // Mark as paid since WooCommerce orders are typically completed
-      paid: wcOrder.status === 'completed' || wcOrder.date_paid != null
+      // Mark as unpaid - payments will be synced separately from bank accounts
+      paid: false
     };
   }
 
