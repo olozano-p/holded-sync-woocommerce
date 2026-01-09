@@ -3,15 +3,19 @@ import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 
 export class HoldedClient {
-  constructor() {
+  constructor(apiKey = null, accountName = 'primary') {
+    // Use provided API key or default to primary
+    const effectiveApiKey = apiKey || config.holded.apiKey;
+
     this.client = axios.create({
       baseURL: config.holded.baseUrl,
       headers: {
-        'key': config.holded.apiKey,
+        'key': effectiveApiKey,
         'Content-Type': 'application/json'
       }
     });
-    
+
+    this.accountName = accountName; // For logging purposes
     this.existingProducts = new Map(); // sku -> { id, ... }
     this.existingContacts = new Map(); // email/name -> id
     this.salesChannels = new Map();    // name -> id
@@ -33,28 +37,28 @@ export class HoldedClient {
   }
 
   async loadExistingProducts() {
-    logger.info('Loading existing products from Holded...');
+    logger.info(`Loading existing products from Holded (${this.accountName})...`);
     try {
       let page = 1;
       let hasMore = true;
-      
+
       while (hasMore) {
         const response = await this.client.get('/products', { params: { page } });
         const products = response.data || [];
-        
+
         products.forEach(p => {
           if (p.sku) {
             this.existingProducts.set(p.sku, { id: p.id, ...p });
           }
         });
-        
+
         hasMore = products.length === 50; // Holded default page size
         page++;
       }
-      
-      logger.info(`Loaded ${this.existingProducts.size} existing products`);
+
+      logger.info(`Loaded ${this.existingProducts.size} existing products (${this.accountName})`);
     } catch (error) {
-      logger.error(`Failed to load existing products: ${error.message}`);
+      logger.error(`Failed to load existing products (${this.accountName}): ${error.message}`);
     }
   }
 
@@ -165,7 +169,7 @@ export class HoldedClient {
       await this.sleep(100);
     }
 
-    logger.info(`Product sync complete: ${results.created} created, ${results.updated} updated, ${results.errors} errors`);
+    logger.info(`Product sync complete (${this.accountName}): ${results.created} created, ${results.updated} updated, ${results.errors} errors`);
     return results;
   }
 
@@ -410,7 +414,7 @@ export class HoldedClient {
       await this.sleep(200);
     }
 
-    logger.info(`Order sync complete: ${results.created} ${docType}s created, ${results.errors} errors`);
+    logger.info(`Order sync complete (${this.accountName}): ${results.created} ${docType}s created, ${results.errors} errors`);
     return results;
   }
 
