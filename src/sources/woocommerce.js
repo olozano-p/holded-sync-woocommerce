@@ -138,8 +138,9 @@ export class WooCommerceClient {
         name: item.name,
         description: '',
         quantity: item.quantity,
-        price: parseFloat(item.price),  // Unit price without tax
-        total: parseFloat(item.total),
+        price: parseFloat(item.price),  // Unit price without tax (WooCommerce calculated)
+        total: parseFloat(item.total),  // Line total without tax
+        totalWithTax: parseFloat(item.total) + parseFloat(item.total_tax || 0), // Line total WITH tax
         tax: parseFloat(item.total_tax) || 0,
         taxRate: this.calculateTaxRate(item),
         discount: 0

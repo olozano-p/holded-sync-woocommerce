@@ -12,30 +12,34 @@ export const config = {
   
   sumup: {
     apiKey: process.env.SUMUP_API_KEY,
-    baseUrl: 'https://api.sumup.com/v0.1'
+    baseUrl: 'https://api.sumup.com/v0.1',
+    defaultVatRate: parseFloat(process.env.SUMUP_DEFAULT_VAT_RATE || process.env.DEFAULT_VAT_RATE || '21')
   },
   
   woocommerce: [
     {
-      name: 'Site 1',
+      name: process.env.WC_SITE1_PREFIX || 'S1',
       url: process.env.WC_SITE1_URL,
       consumerKey: process.env.WC_SITE1_KEY,
       consumerSecret: process.env.WC_SITE1_SECRET,
-      prefix: process.env.WC_SITE1_PREFIX || 'S1'
+      prefix: process.env.WC_SITE1_PREFIX || 'S1',
+      defaultVatRate: parseFloat(process.env.WC_SITE1_DEFAULT_VAT_RATE || process.env.DEFAULT_VAT_RATE || '21')
     },
     {
-      name: 'Site 2',
+      name: process.env.WC_SITE2_PREFIX || 'S2',
       url: process.env.WC_SITE2_URL,
       consumerKey: process.env.WC_SITE2_KEY,
       consumerSecret: process.env.WC_SITE2_SECRET,
-      prefix: process.env.WC_SITE2_PREFIX || 'S2'
+      prefix: process.env.WC_SITE2_PREFIX || 'S2',
+      defaultVatRate: parseFloat(process.env.WC_SITE2_DEFAULT_VAT_RATE || process.env.DEFAULT_VAT_RATE || '21')
     },
     {
-      name: 'Site 3',
+      name: process.env.WC_SITE3_PREFIX || 'S3',
       url: process.env.WC_SITE3_URL,
       consumerKey: process.env.WC_SITE3_KEY,
       consumerSecret: process.env.WC_SITE3_SECRET,
-      prefix: process.env.WC_SITE3_PREFIX || 'S3'
+      prefix: process.env.WC_SITE3_PREFIX || 'S3',
+      defaultVatRate: parseFloat(process.env.WC_SITE3_DEFAULT_VAT_RATE || process.env.DEFAULT_VAT_RATE || '21')
     }
   ].filter(site => site.url && site.consumerKey),
   

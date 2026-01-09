@@ -98,20 +98,25 @@ export class HoldedClient {
   // PRODUCTS
   // ============================================
 
-  async createOrUpdateProduct(product) {
+  async createOrUpdateProduct(product, siteVatRate = null) {
     const existingId = this.existingProducts.get(product.sku)?.id;
-    
+
     // Holded product structure per API docs
     const holdedProduct = {
       name: product.name,
       sku: product.sku,
       desc: product.description || '',
       price: product.price,           // Precio venta (subtotal sin IVA)
-      tax: config.sync.defaultVatRate,
       purchasePrice: product.cost || 0,
       tags: product.tags || [],
       kind: 'simple'                  // simple, variants, lots, pack
     };
+
+    // Only set VAT rate for new products, preserve existing VAT settings for updates
+    if (!existingId) {
+      // Use site-specific VAT rate if provided, otherwise fall back to global default
+      holdedProduct.tax = siteVatRate || config.sync.defaultVatRate;
+    }
 
     try {
       if (existingId) {
@@ -133,19 +138,33 @@ export class HoldedClient {
     }
   }
 
-  async syncProducts(products) {
+  async syncProducts(products, siteConfigs = []) {
     await this.loadExistingProducts();
-    
+
     const results = { created: 0, updated: 0, errors: 0 };
-    
+
+    // Create a map of site prefixes to VAT rates for quick lookup
+    const vatRateMap = new Map();
+    siteConfigs.forEach(site => {
+      vatRateMap.set(site.prefix, site.defaultVatRate);
+    });
+
+    // Add SumUp VAT rate if configured
+    if (config.sumup.apiKey) {
+      vatRateMap.set('SUMUP', config.sumup.defaultVatRate);
+    }
+
     for (const product of products) {
-      const result = await this.createOrUpdateProduct(product);
+      // Get site-specific VAT rate based on product's site prefix
+      const siteVatRate = product.sitePrefix ? vatRateMap.get(product.sitePrefix) : null;
+
+      const result = await this.createOrUpdateProduct(product, siteVatRate);
       results[result.action === 'error' ? 'errors' : result.action]++;
-      
+
       // Rate limiting - Holded doesn't document limits, be conservative
       await this.sleep(100);
     }
-    
+
     logger.info(`Product sync complete: ${results.created} created, ${results.updated} updated, ${results.errors} errors`);
     return results;
   }
@@ -224,7 +243,7 @@ export class HoldedClient {
    * Create invoice in Holded
    * docType options: invoice, salesreceipt, creditnote, salesorder, proform, waybill, estimate
    */
-  async createInvoice(order, docType = 'invoice') {
+  async createInvoice(order, docType = 'invoice', siteVatRate = null) {
     const contactId = order.customer 
       ? await this.findOrCreateContact(order.customer) 
       : null;
@@ -259,15 +278,42 @@ export class HoldedClient {
       currency: order.currency || 'EUR',
       
       // Line items - THIS IS THE KEY STRUCTURE
-      items: order.items.map(item => ({
-        name: item.name,
-        desc: item.description || '',
-        sku: item.sku || '',
-        units: item.quantity || 1,
-        subtotal: item.price,      // Price per unit WITHOUT tax
-        discount: item.discount || 0,
-        tax: item.taxRate || config.sync.defaultVatRate
-      })),
+      items: order.items.map(item => {
+        // First, try to get VAT rate from the actual product in Holded
+        const holdedProduct = this.existingProducts.get(item.sku);
+        let productVatRate = null;
+
+        // Parse VAT rate from Holded product's taxes array (e.g., "s_iva_21" -> 21)
+        if (holdedProduct?.taxes && Array.isArray(holdedProduct.taxes) && holdedProduct.taxes.length > 0) {
+          const taxCode = holdedProduct.taxes[0]; // Take first tax (usually only one)
+          const match = taxCode.match(/s_iva_(\d+)/);
+          if (match) {
+            productVatRate = parseInt(match[1]);
+          }
+        }
+
+        // Use product VAT rate if available, otherwise fallback to calculated/configured rates
+        const effectiveTaxRate = productVatRate !== null ? productVatRate :
+                                (item.taxRate || siteVatRate || config.sync.defaultVatRate);
+
+        // Try approach: Let Holded calculate subtotal from total and product's own VAT rate
+        const unitPriceWithTax = item.totalWithTax / item.quantity;
+
+        // Calculate subtotal using the product's actual VAT rate from Holded
+        const calculatedSubtotal = effectiveTaxRate > 0
+          ? unitPriceWithTax / (1 + effectiveTaxRate / 100)
+          : unitPriceWithTax;
+
+        return {
+          name: item.name,
+          desc: item.description || '',
+          sku: item.sku || '',
+          units: item.quantity || 1,
+          subtotal: calculatedSubtotal,  // Calculated using product's actual VAT rate
+          discount: item.discount || 0,
+          tax: effectiveTaxRate  // Product's actual VAT rate from Holded
+        };
+      }),
       
       // Tags for filtering
       tags: [
@@ -337,19 +383,33 @@ export class HoldedClient {
     }
   }
 
-  async syncOrders(orders, docType = 'invoice') {
+  async syncOrders(orders, docType = 'invoice', siteConfigs = []) {
     await this.initialize();
-    
+
     const results = { created: 0, errors: 0 };
-    
+
+    // Create a map of site prefixes to VAT rates for quick lookup
+    const vatRateMap = new Map();
+    siteConfigs.forEach(site => {
+      vatRateMap.set(site.prefix, site.defaultVatRate);
+    });
+
+    // Add SumUp VAT rate if configured
+    if (config.sumup.apiKey) {
+      vatRateMap.set('SUMUP', config.sumup.defaultVatRate);
+    }
+
     for (const order of orders) {
-      const result = await this.createInvoice(order, docType);
+      // Get site-specific VAT rate based on order's site prefix
+      const siteVatRate = order.sitePrefix ? vatRateMap.get(order.sitePrefix) : null;
+
+      const result = await this.createInvoice(order, docType, siteVatRate);
       results[result.success ? 'created' : 'errors']++;
-      
+
       // Rate limiting
       await this.sleep(200);
     }
-    
+
     logger.info(`Order sync complete: ${results.created} ${docType}s created, ${results.errors} errors`);
     return results;
   }

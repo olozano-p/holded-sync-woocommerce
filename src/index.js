@@ -62,7 +62,7 @@ async function main() {
         await exportProductsToExcel(products);
 
         if (!excelOnly) {
-          const syncResult = await holded.syncProducts(products);
+          const syncResult = await holded.syncProducts(products, config.woocommerce);
           results.products.synced = syncResult.created + syncResult.updated;
           results.products.errors = syncResult.errors;
         }
@@ -96,7 +96,7 @@ async function main() {
         await exportSalesSummary(allOrders);
 
         if (!excelOnly) {
-          const syncResult = await holded.syncOrders(allOrders);
+          const syncResult = await holded.syncOrders(allOrders, config.holded.docType, config.woocommerce);
           results.orders.synced = syncResult.created;
           results.orders.errors = syncResult.errors;
         }
