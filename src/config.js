@@ -58,7 +58,9 @@ export const config = {
   sync: {
     daysBack: parseInt(process.env.SYNC_DAYS_BACK || '1', 10),
     defaultVatRate: parseFloat(process.env.DEFAULT_VAT_RATE || '21'),
-    timezone: process.env.TZ || 'Europe/Madrid'
+    timezone: process.env.TZ || 'Europe/Madrid',
+    excludedSkus: process.env.EXCLUDED_SKUS ?
+      process.env.EXCLUDED_SKUS.split(',').map(sku => sku.trim().toLowerCase()) : []
   },
   
   logging: {
@@ -67,6 +69,10 @@ export const config = {
 };
 
 // Utility functions for SKU-based routing
+export function isExcludedSku(sku) {
+  return config.sync.excludedSkus.includes(sku.toLowerCase());
+}
+
 export function isSecondaryProduct(product) {
   return config.holdedSecondary.skus.includes(product.sku);
 }
@@ -82,6 +88,11 @@ export function filterProductsByDestination(products) {
   const primary = [];
 
   products.forEach(product => {
+    // Skip excluded SKUs entirely
+    if (isExcludedSku(product.sku)) {
+      return;
+    }
+
     if (isSecondaryProduct(product)) {
       secondary.push(product);
     } else {
@@ -97,10 +108,21 @@ export function filterOrdersByDestination(orders) {
   const primary = [];
 
   orders.forEach(order => {
-    if (hasSecondarySkus(order)) {
-      secondary.push(order);
+    // Filter out excluded SKUs from order items
+    const filteredOrder = {
+      ...order,
+      items: order.items ? order.items.filter(item => !isExcludedSku(item.sku)) : []
+    };
+
+    // Skip orders with no valid items left after filtering
+    if (!filteredOrder.items || filteredOrder.items.length === 0) {
+      return;
+    }
+
+    if (hasSecondarySkus(filteredOrder)) {
+      secondary.push(filteredOrder);
     } else {
-      primary.push(order);
+      primary.push(filteredOrder);
     }
   });
 
