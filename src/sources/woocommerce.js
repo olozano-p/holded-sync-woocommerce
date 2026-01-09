@@ -34,7 +34,6 @@ export class WooCommerceClient {
         hasMore = page < totalPages;
         page++;
         
-        logger.debug(`Fetched page ${page - 1}/${totalPages} from ${this.name}`);
       } catch (error) {
         logger.error(`Error fetching products from ${this.name}: ${error.message}`);
         throw error;
@@ -50,8 +49,9 @@ export class WooCommerceClient {
     const orders = [];
     let page = 1;
     let hasMore = true;
+    const maxPages = 1000; // Safety limit to prevent infinite loops
 
-    while (hasMore) {
+    while (hasMore && page <= maxPages) {
       try {
         const response = await this.api.get('orders', {
           per_page: 100,
@@ -60,16 +60,34 @@ export class WooCommerceClient {
           before: `${dateTo}T23:59:59`,
           status: ['completed', 'processing']
         });
-        
+
+        // Break if no data returned
+        if (!response.data || response.data.length === 0) {
+          break;
+        }
+
         orders.push(...response.data);
-        
-        const totalPages = parseInt(response.headers['x-wp-totalpages'] || '1');
+
+        const totalPagesHeader = response.headers['x-wp-totalpages'];
+        const totalPages = totalPagesHeader ? parseInt(totalPagesHeader) : 1;
+
+
+        // Safety checks for totalPages
+        if (isNaN(totalPages) || totalPages <= 0 || totalPages > maxPages) {
+          logger.warn(`Invalid totalPages (${totalPagesHeader}) from ${this.name}, stopping pagination`);
+          break;
+        }
+
         hasMore = page < totalPages;
         page++;
       } catch (error) {
         logger.error(`Error fetching orders from ${this.name}: ${error.message}`);
         throw error;
       }
+    }
+
+    if (page > maxPages) {
+      logger.warn(`Hit maximum pages limit (${maxPages}) for ${this.name}`);
     }
 
     logger.info(`Fetched ${orders.length} orders from ${this.name}`);
