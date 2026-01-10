@@ -78,8 +78,9 @@ export class SumUpClient {
         sku: `SUMUP-${tx.transaction_code}`,
         name: tx.product_summary || 'Point of Sale',
         quantity: 1,
-        price: tx.amount - (tx.tip_amount || 0),
-        total: tx.amount - (tx.tip_amount || 0),
+        price: tx.amount - (tx.tip_amount || 0) - (tx.vat_amount || 0),
+        total: tx.amount - (tx.tip_amount || 0) - (tx.vat_amount || 0),
+        totalWithTax: tx.amount - (tx.tip_amount || 0),
         tax: tx.vat_amount || 0
       }]
     };
