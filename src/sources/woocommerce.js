@@ -6,6 +6,8 @@ export class WooCommerceClient {
   constructor(siteConfig) {
     this.name = siteConfig.name;
     this.prefix = siteConfig.prefix;
+    this.pricesIncludeTax = siteConfig.pricesIncludeTax || false;
+    this.defaultVatRate = siteConfig.defaultVatRate || 21;
     this.api = new WooCommerceRestApi.default({
       url: siteConfig.url,
       consumerKey: siteConfig.consumerKey,
@@ -41,7 +43,23 @@ export class WooCommerceClient {
     }
 
     logger.info(`Fetched ${products.length} products from ${this.name}`);
-    return products.map(p => this.normalizeProduct(p));
+
+    // Process products in batches to prevent stack overflow
+    const normalizedProducts = [];
+    const batchSize = 100;
+
+    for (let i = 0; i < products.length; i += batchSize) {
+      const batch = products.slice(i, i + batchSize);
+      try {
+        const normalizedBatch = batch.map(p => this.normalizeProduct(p));
+        normalizedProducts.push(...normalizedBatch);
+      } catch (error) {
+        logger.error(`Error normalizing product batch ${Math.floor(i/batchSize) + 1} from ${this.name}: ${error.message}`);
+        // Continue with remaining batches instead of failing completely
+      }
+    }
+
+    return normalizedProducts;
   }
 
   async getOrders(dateFrom, dateTo) {
@@ -91,7 +109,23 @@ export class WooCommerceClient {
     }
 
     logger.info(`Fetched ${orders.length} orders from ${this.name}`);
-    return orders.map(o => this.normalizeOrder(o));
+
+    // Process orders in batches to prevent stack overflow
+    const normalizedOrders = [];
+    const batchSize = 50;
+
+    for (let i = 0; i < orders.length; i += batchSize) {
+      const batch = orders.slice(i, i + batchSize);
+      try {
+        const normalizedBatch = batch.map(o => this.normalizeOrder(o));
+        normalizedOrders.push(...normalizedBatch);
+      } catch (error) {
+        logger.error(`Error normalizing order batch ${Math.floor(i/batchSize) + 1} from ${this.name}: ${error.message}`);
+        // Continue with remaining batches instead of failing completely
+      }
+    }
+
+    return normalizedOrders;
   }
 
   normalizeProduct(wcProduct) {
@@ -106,6 +140,9 @@ export class WooCommerceClient {
       price: parseFloat(wcProduct.price) || 0,
       regularPrice: parseFloat(wcProduct.regular_price) || 0,
       salePrice: parseFloat(wcProduct.sale_price) || 0,
+      // Pass flag so Holded client can calculate net price using product's actual VAT rate
+      pricesIncludeTax: this.pricesIncludeTax,
+      defaultVatRate: this.defaultVatRate,
       categories: wcProduct.categories?.map(c => c.name) || [],
       tags: wcProduct.tags?.map(t => t.name) || [],
       stock: wcProduct.stock_quantity || 0,

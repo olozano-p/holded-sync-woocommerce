@@ -103,14 +103,34 @@ export class HoldedClient {
   // ============================================
 
   async createOrUpdateProduct(product, siteVatRate = null) {
-    const existingId = this.existingProducts.get(product.sku)?.id;
+    const existingProduct = this.existingProducts.get(product.sku);
+    const existingId = existingProduct?.id;
+
+    // Determine the VAT rate to use for price calculation
+    let vatRateForCalc = siteVatRate || product.defaultVatRate || config.sync.defaultVatRate;
+
+    // For existing products, try to get their actual VAT rate from Holded
+    if (existingProduct?.taxes && Array.isArray(existingProduct.taxes) && existingProduct.taxes.length > 0) {
+      const taxCode = existingProduct.taxes[0];
+      const match = taxCode.match(/s_iva_(\d+)/);
+      if (match) {
+        vatRateForCalc = parseInt(match[1]);
+      }
+    }
+
+    // Calculate net price if the source prices include tax
+    let price = product.price;
+    if (product.pricesIncludeTax && vatRateForCalc > 0) {
+      const taxMultiplier = 1 + (vatRateForCalc / 100);
+      price = Math.round((price / taxMultiplier) * 100) / 100;
+    }
 
     // Holded product structure per API docs
     const holdedProduct = {
       name: product.name,
       sku: product.sku,
       desc: product.description || '',
-      price: product.price,           // Precio venta (subtotal sin IVA)
+      price: price,                   // Precio venta (subtotal sin IVA)
       purchasePrice: product.cost || 0,
       tags: product.tags || [],
       kind: 'simple'                  // simple, variants, lots, pack
@@ -119,7 +139,7 @@ export class HoldedClient {
     // Only set VAT rate for new products, preserve existing VAT settings for updates
     if (!existingId) {
       // Use site-specific VAT rate if provided, otherwise fall back to global default
-      holdedProduct.tax = siteVatRate || config.sync.defaultVatRate;
+      holdedProduct.tax = siteVatRate || product.defaultVatRate || config.sync.defaultVatRate;
     }
 
     try {
