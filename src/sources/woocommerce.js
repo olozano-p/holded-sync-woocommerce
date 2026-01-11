@@ -8,6 +8,7 @@ export class WooCommerceClient {
     this.prefix = siteConfig.prefix;
     this.pricesIncludeTax = siteConfig.pricesIncludeTax || false;
     this.defaultVatRate = siteConfig.defaultVatRate || 21;
+    this.wpmlLang = siteConfig.wpmlLang || '';
     this.api = new WooCommerceRestApi.default({
       url: siteConfig.url,
       consumerKey: siteConfig.consumerKey,
@@ -17,18 +18,23 @@ export class WooCommerceClient {
   }
 
   async getAllProducts() {
-    logger.info(`Fetching products from ${this.name}...`);
+    logger.info(`Fetching products from ${this.name}${this.wpmlLang ? ` (lang=${this.wpmlLang})` : ''}...`);
     const products = [];
     let page = 1;
     let hasMore = true;
 
     while (hasMore) {
       try {
-        const response = await this.api.get('products', {
+        const params = {
           per_page: 100,
           page,
           status: 'publish'
-        });
+        };
+        // WPML support: add lang parameter for multilingual sites
+        if (this.wpmlLang) {
+          params.lang = this.wpmlLang;
+        }
+        const response = await this.api.get('products', params);
         
         products.push(...response.data);
         
@@ -63,7 +69,7 @@ export class WooCommerceClient {
   }
 
   async getOrders(dateFrom, dateTo) {
-    logger.info(`Fetching orders from ${this.name} (${dateFrom} to ${dateTo})...`);
+    logger.info(`Fetching orders from ${this.name} (${dateFrom} to ${dateTo})${this.wpmlLang ? ` (lang=${this.wpmlLang})` : ''}...`);
     const orders = [];
     let page = 1;
     let hasMore = true;
@@ -71,13 +77,18 @@ export class WooCommerceClient {
 
     while (hasMore && page <= maxPages) {
       try {
-        const response = await this.api.get('orders', {
+        const params = {
           per_page: 100,
           page,
           after: `${dateFrom}T00:00:00`,
           before: `${dateTo}T23:59:59`,
           status: ['completed', 'processing']
-        });
+        };
+        // WPML support: add lang parameter for multilingual sites
+        if (this.wpmlLang) {
+          params.lang = this.wpmlLang;
+        }
+        const response = await this.api.get('orders', params);
 
         // Break if no data returned
         if (!response.data || response.data.length === 0) {

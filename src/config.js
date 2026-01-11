@@ -36,7 +36,9 @@ export const config = {
       consumerSecret: process.env.WC_SITE1_SECRET,
       prefix: process.env.WC_SITE1_PREFIX || 'S1',
       defaultVatRate: parseFloat(process.env.WC_SITE1_DEFAULT_VAT_RATE || process.env.DEFAULT_VAT_RATE || '21'),
-      pricesIncludeTax: process.env.WC_SITE1_PRICES_INCLUDE_TAX === 'true'
+      pricesIncludeTax: process.env.WC_SITE1_PRICES_INCLUDE_TAX === 'true',
+      // WPML: set to 'all' to fetch products in all languages, or specific lang code (e.g., 'es', 'en', 'ca')
+      wpmlLang: process.env.WC_SITE1_WPML_LANG || ''
     },
     {
       name: process.env.WC_SITE2_PREFIX || 'S2',
@@ -45,7 +47,8 @@ export const config = {
       consumerSecret: process.env.WC_SITE2_SECRET,
       prefix: process.env.WC_SITE2_PREFIX || 'S2',
       defaultVatRate: parseFloat(process.env.WC_SITE2_DEFAULT_VAT_RATE || process.env.DEFAULT_VAT_RATE || '21'),
-      pricesIncludeTax: process.env.WC_SITE2_PRICES_INCLUDE_TAX === 'true'
+      pricesIncludeTax: process.env.WC_SITE2_PRICES_INCLUDE_TAX === 'true',
+      wpmlLang: process.env.WC_SITE2_WPML_LANG || ''
     },
     {
       name: process.env.WC_SITE3_PREFIX || 'S3',
@@ -54,7 +57,8 @@ export const config = {
       consumerSecret: process.env.WC_SITE3_SECRET,
       prefix: process.env.WC_SITE3_PREFIX || 'S3',
       defaultVatRate: parseFloat(process.env.WC_SITE3_DEFAULT_VAT_RATE || process.env.DEFAULT_VAT_RATE || '21'),
-      pricesIncludeTax: process.env.WC_SITE3_PRICES_INCLUDE_TAX === 'true'
+      pricesIncludeTax: process.env.WC_SITE3_PRICES_INCLUDE_TAX === 'true',
+      wpmlLang: process.env.WC_SITE3_WPML_LANG || ''
     }
   ].filter(site => site.url && site.consumerKey),
   
