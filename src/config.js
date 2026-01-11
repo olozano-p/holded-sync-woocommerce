@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { logger } from './utils/logger.js';
 
 export const config = {
   holded: {
@@ -123,6 +124,9 @@ export function filterOrdersByDestination(orders) {
 
     // Skip orders with no valid items left after filtering
     if (!filteredOrder.items || filteredOrder.items.length === 0) {
+      const skus = order.items?.map(i => i.sku).join(', ') || 'unknown';
+      const date = order.date?.split('T')[0] || 'unknown date';
+      logger.info(`Skipping order ${order.orderNumber || order.id} (${date}) - all items excluded: ${skus}`);
       return;
     }
 
