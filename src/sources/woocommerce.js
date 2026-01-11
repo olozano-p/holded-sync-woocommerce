@@ -182,9 +182,12 @@ export class WooCommerceClient {
         email: wcOrder.billing?.email || '',
         phone: wcOrder.billing?.phone || '',
         company: wcOrder.billing?.company || '',
-        vatNumber: wcOrder.meta_data?.find(m => 
-          m.key === '_billing_vat' || 
-          m.key === '_billing_nif' || 
+        // DNI (Spanish personal ID) - goes to Holded's 'code' field (client ID)
+        dni: (wcOrder.meta_data?.find(m => m.key === '_billing_dni')?.value || '').toUpperCase(),
+        // VAT/NIF for businesses - goes to Holded's 'vatnumber' field
+        vatNumber: wcOrder.meta_data?.find(m =>
+          m.key === '_billing_vat' ||
+          m.key === '_billing_nif' ||
           m.key === 'billing_vat' ||
           m.key === '_vat_number'
         )?.value || '',

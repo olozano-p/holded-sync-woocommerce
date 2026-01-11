@@ -209,19 +209,24 @@ export class HoldedClient {
     }
 
     try {
-      // Search for existing contact by email or NIF
-      const searchParams = customer.vatNumber 
-        ? { vatnumber: customer.vatNumber }
-        : { email: customer.email };
-      
-      const searchResponse = await this.client.get('/contacts', { params: searchParams });
-      
-      const existing = (searchResponse.data || []).find(c => 
-        c.email === customer.email || 
-        c.name === customer.name ||
-        c.vatnumber === customer.vatNumber
-      );
-      
+      // Search for existing contact by email, DNI, or NIF (only if we have a value to search)
+      let existing = null;
+
+      if (customer.email) {
+        const searchResponse = await this.client.get('/contacts', { params: { email: customer.email } });
+        existing = (searchResponse.data || []).find(c => c.email === customer.email);
+      }
+
+      if (!existing && customer.dni) {
+        const searchResponse = await this.client.get('/contacts', { params: { code: customer.dni } });
+        existing = (searchResponse.data || []).find(c => c.code === customer.dni);
+      }
+
+      if (!existing && customer.vatNumber) {
+        const searchResponse = await this.client.get('/contacts', { params: { vatnumber: customer.vatNumber } });
+        existing = (searchResponse.data || []).find(c => c.vatnumber === customer.vatNumber);
+      }
+
       if (existing) {
         this.existingContacts.set(key, existing.id);
         return existing.id;
@@ -233,7 +238,8 @@ export class HoldedClient {
         email: customer.email || '',
         phone: customer.phone || '',
         tradeName: customer.company || '',
-        vatnumber: customer.vatNumber || '',
+        code: customer.dni || '',           // DNI -> client ID field
+        vatnumber: customer.vatNumber || '', // VAT/NIF for businesses
         type: 'client',
         // Address fields
         address: customer.address || '',
