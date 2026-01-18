@@ -351,11 +351,21 @@ export class HoldedClient {
         order.sitePrefix,
         order.paymentMethod || order.paymentType
       ].filter(Boolean),
-      
-      // Sales channel (if configured)
-      ...(order.salesChannel && this.salesChannels.has(order.salesChannel) && {
-        salesChannel: this.salesChannels.get(order.salesChannel)
-      }),
+
+      // Sales channel - get from first product's salesChannelId (determines cuenta contable)
+      ...(() => {
+        const firstItemSku = order.items?.[0]?.sku;
+        const firstProduct = firstItemSku ? this.existingProducts.get(firstItemSku) : null;
+        if (firstProduct?.salesChannelId) {
+          logger.debug(`Using salesChannelId ${firstProduct.salesChannelId} from product ${firstItemSku}`);
+          return { salesChannelId: firstProduct.salesChannelId };
+        }
+        // Fallback to order-level salesChannel if set (by name lookup)
+        if (order.salesChannel && this.salesChannels.has(order.salesChannel)) {
+          return { salesChannelId: this.salesChannels.get(order.salesChannel) };
+        }
+        return {};
+      })(),
       
       // Warehouse (if configured) 
       ...(order.warehouse && this.warehouses.has(order.warehouse) && {
