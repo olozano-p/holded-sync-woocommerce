@@ -70,6 +70,7 @@ export const config = {
     consumerKey: process.env.HOTEL_KEY || process.env.WC_SITE1_KEY,
     consumerSecret: process.env.HOTEL_SECRET || process.env.WC_SITE1_SECRET,
     prefix: process.env.HOTEL_PREFIX || 'HOTEL',
+    productSku: process.env.HOTEL_PRODUCT_SKU || 'HOTEL-RESERVA', // Single product SKU for all hotel bookings
     defaultVatRate: parseFloat(process.env.HOTEL_DEFAULT_VAT_RATE || '10'), // Spanish hotel VAT is typically 10%
     pricesIncludeTax: process.env.HOTEL_PRICES_INCLUDE_TAX !== 'false' // Default true for hotels
   },

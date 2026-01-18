@@ -139,6 +139,7 @@ MPHB Booking → normalizeBooking() → Holded Invoice
 3. **Tax rates** - Products currently skip tax (Holded uses defaults); invoices extract tax from WooCommerce line items
 4. **Inventory app** - Holded rejects `stock` field without Inventory subscription; removed from product sync
 5. **Duplicate detection** - Products matched by SKU; invoices have no dedup (will create duplicates if run twice for same date range)
+6. **Hotel bookings** - All bookings use single product SKU (HOTEL_PRODUCT_SKU) to ensure correct cuenta contable; room/service names preserved in line item descriptions
 
 ## Environment Variables
 
@@ -153,12 +154,12 @@ WC_SITE1_SECRET=          # Consumer secret (cs_...)
 WC_SITE1_PREFIX=          # SKU prefix, e.g., SITE1
 
 # Hotel Bookings (MotoPress Hotel Booking)
-HOTEL_NAME=Hotel Bookings # Optional: name for logs
-HOTEL_PREFIX=HOTEL        # SKU prefix for hotel items
-HOTEL_DEFAULT_VAT_RATE=10 # Spanish hotel VAT (10%)
-# HOTEL_URL=              # Optional: defaults to WC_SITE1_URL
-# HOTEL_KEY=              # Optional: defaults to WC_SITE1_KEY
-# HOTEL_SECRET=           # Optional: defaults to WC_SITE1_SECRET
+HOTEL_NAME=Hotel Bookings       # Optional: name for logs
+HOTEL_KEY=ck_xxxxxxxxxxxx       # MotoPress API key (Accommodation > Settings > Advanced)
+HOTEL_SECRET=cs_xxxxxxxxxxxx    # MotoPress API secret
+HOTEL_PRODUCT_SKU=HOTEL-RESERVA # Product SKU in Holded for all bookings (for correct cuenta contable)
+HOTEL_DEFAULT_VAT_RATE=10       # Spanish hotel VAT (10%)
+# HOTEL_URL=                    # Optional: defaults to WC_SITE1_URL
 
 # Optional
 SUMUP_API_KEY=            # Leave empty to skip SumUp

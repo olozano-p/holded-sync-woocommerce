@@ -10,6 +10,7 @@ export class HotelBookingClient {
   constructor(siteConfig) {
     this.name = siteConfig.name || 'Hotel Bookings';
     this.prefix = siteConfig.prefix || 'HOTEL';
+    this.productSku = siteConfig.productSku || 'HOTEL-RESERVA'; // Single SKU for all hotel bookings
     this.defaultVatRate = siteConfig.defaultVatRate || 10; // Spanish hotel VAT is typically 10%
     this.pricesIncludeTax = siteConfig.pricesIncludeTax !== false; // Default true for hotels
 
@@ -130,7 +131,7 @@ export class HotelBookingClient {
       subtotal,
       tax,
       currency: mphbBooking.currency || 'EUR',
-      paymentMethod: mphbBooking.payment_method || 'Reserva directa',
+      paymentMethod: 'WooCommerce', // Tag as WooCommerce (source site)
       customer,
       items,
       // Hotel bookings are typically unpaid until check-in/check-out
@@ -192,6 +193,7 @@ export class HotelBookingClient {
 
   /**
    * Extract line items from booking (rooms + services)
+   * Uses single product SKU for all items to ensure correct cuenta contable
    */
   extractItems(booking) {
     const items = [];
@@ -205,7 +207,7 @@ export class HotelBookingClient {
         const quantity = this.calculateNights(booking.check_in_date, booking.check_out_date);
 
         items.push({
-          sku: room.room_type_id ? `${this.prefix}-ROOM-${room.room_type_id}` : `${this.prefix}-ROOM-${index + 1}`,
+          sku: this.productSku, // Use single product SKU for all bookings
           name: room.room_type_title || room.title || `Habitación ${index + 1}`,
           description: room.room_type_description || '',
           quantity: quantity > 0 ? quantity : 1,
@@ -228,7 +230,7 @@ export class HotelBookingClient {
         const quantity = parseInt(service.quantity || 1);
 
         items.push({
-          sku: service.id ? `${this.prefix}-SVC-${service.id}` : `${this.prefix}-SVC-${index + 1}`,
+          sku: this.productSku, // Use single product SKU for all bookings
           name: service.title || `Servicio ${index + 1}`,
           description: service.description || '',
           quantity,
@@ -250,7 +252,7 @@ export class HotelBookingClient {
       const nights = this.calculateNights(booking.check_in_date, booking.check_out_date);
 
       items.push({
-        sku: `${this.prefix}-${booking.id}`,
+        sku: this.productSku, // Use single product SKU for all bookings
         name: `Reserva Hotel #${booking.id}`,
         description: `Check-in: ${booking.check_in_date}, Check-out: ${booking.check_out_date}`,
         quantity: nights > 0 ? nights : 1,
