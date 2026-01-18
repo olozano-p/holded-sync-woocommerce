@@ -10,16 +10,18 @@ import { logger } from './utils/logger.js';
 import { getDateRange, getDaysAgo, getYesterday } from './utils/date.js';
 import { fetchAllWooCommerceProducts, fetchAllWooCommerceOrders } from './sources/woocommerce.js';
 import { fetchSumUpTransactions } from './sources/sumup.js';
+import { fetchHotelBookings } from './sources/hotelBookings.js';
 import { HoldedClient } from './destinations/holded.js';
 import { exportProductsToExcel, exportOrdersToExcel, exportSalesSummary } from './destinations/excel.js';
 
 async function main() {
   const args = minimist(process.argv.slice(2), {
-    boolean: ['products', 'sales', 'excel-only', 'help'],
+    boolean: ['products', 'sales', 'bookings', 'excel-only', 'help'],
     string: ['from', 'to'],
     default: {
       products: false,
       sales: false,
+      bookings: false,
       'excel-only': false
     }
   });
@@ -36,8 +38,9 @@ async function main() {
   validateConfig();
 
   // Determine what to sync
-  const syncProducts = args.products || (!args.products && !args.sales);
-  const syncSales = args.sales || (!args.products && !args.sales);
+  const syncProducts = args.products || (!args.products && !args.sales && !args.bookings);
+  const syncSales = args.sales || (!args.products && !args.sales && !args.bookings);
+  const syncBookings = args.bookings || (!args.products && !args.sales && !args.bookings);
   const excelOnly = args['excel-only'];
 
   // Date range for sales
@@ -109,23 +112,36 @@ async function main() {
     }
 
     // ============================================
-    // SALES SYNC
+    // SALES SYNC (includes regular sales and optionally hotel bookings)
     // ============================================
-    if (syncSales) {
+    if (syncSales || syncBookings) {
       logger.info('-'.repeat(40));
       logger.info(`SALES SYNC (${dateFrom} to ${dateTo})`);
       logger.info('-'.repeat(40));
 
       // Fetch from all sources
-      const [wcOrders, sumupTransactions] = await Promise.all([
-        fetchAllWooCommerceOrders(config.woocommerce, dateFrom, dateTo),
-        fetchSumUpTransactions(dateFrom, dateTo)
-      ]);
+      const fetchPromises = [];
 
-      const allOrders = [...wcOrders, ...sumupTransactions];
+      if (syncSales) {
+        fetchPromises.push(fetchAllWooCommerceOrders(config.woocommerce, dateFrom, dateTo));
+        fetchPromises.push(fetchSumUpTransactions(dateFrom, dateTo));
+      } else {
+        fetchPromises.push(Promise.resolve([])); // Empty WC orders
+        fetchPromises.push(Promise.resolve([])); // Empty SumUp
+      }
+
+      if (syncBookings) {
+        fetchPromises.push(fetchHotelBookings(config.hotel, dateFrom, dateTo));
+      } else {
+        fetchPromises.push(Promise.resolve([])); // Empty hotel bookings
+      }
+
+      const [wcOrders, sumupTransactions, hotelBookings] = await Promise.all(fetchPromises);
+
+      const allOrders = [...wcOrders, ...sumupTransactions, ...hotelBookings];
       results.orders.total = allOrders.length;
 
-      logger.info(`Total orders/transactions: ${allOrders.length} (WooCommerce: ${wcOrders.length}, SumUp: ${sumupTransactions.length})`);
+      logger.info(`Total orders/transactions: ${allOrders.length} (WooCommerce: ${wcOrders.length}, SumUp: ${sumupTransactions.length}, Hotel: ${hotelBookings.length})`);
 
       if (allOrders.length > 0) {
         // Export to Holded-compatible Excel format (for manual import if needed)
@@ -209,23 +225,25 @@ async function main() {
 
 function printHelp() {
   console.log(`
-Holded Sync - Sync products and sales from WooCommerce & SumUp to Holded
+Holded Sync - Sync products and sales from WooCommerce, SumUp & Hotel Bookings to Holded
 
 Usage: node src/index.js [options]
 
 Options:
   --products      Sync products only
-  --sales         Sync sales/orders only
-  --from DATE     Start date for sales (YYYY-MM-DD)
-  --to DATE       End date for sales (YYYY-MM-DD)
+  --sales         Sync sales/orders only (WooCommerce + SumUp)
+  --bookings      Sync hotel bookings only (MotoPress Hotel Booking)
+  --from DATE     Start date for sales/bookings (YYYY-MM-DD)
+  --to DATE       End date for sales/bookings (YYYY-MM-DD)
   --excel-only    Export to Excel without uploading to Holded
   --help          Show this help message
 
 Examples:
-  node src/index.js                    # Full sync (products + yesterday's sales)
+  node src/index.js                    # Full sync (products + sales + bookings)
   node src/index.js --products         # Products only
-  node src/index.js --sales            # Yesterday's sales only
-  node src/index.js --sales --from 2025-01-01 --to 2025-01-15
+  node src/index.js --sales            # Yesterday's sales only (WooCommerce + SumUp)
+  node src/index.js --bookings         # Yesterday's hotel bookings only
+  node src/index.js --bookings --from 2025-01-01 --to 2025-01-15
   node src/index.js --excel-only       # Export without uploading
 
 Environment variables:

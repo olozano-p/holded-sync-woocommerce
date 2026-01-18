@@ -61,6 +61,18 @@ export const config = {
       wpmlLang: process.env.WC_SITE3_WPML_LANG || ''
     }
   ].filter(site => site.url && site.consumerKey),
+
+  // Hotel Bookings (MotoPress Hotel Booking plugin on WC_SITE1)
+  hotel: {
+    name: process.env.HOTEL_NAME || 'Hotel Bookings',
+    // Uses same WordPress site as WC_SITE1 for MotoPress Hotel Booking REST API
+    url: process.env.HOTEL_URL || process.env.WC_SITE1_URL,
+    consumerKey: process.env.HOTEL_KEY || process.env.WC_SITE1_KEY,
+    consumerSecret: process.env.HOTEL_SECRET || process.env.WC_SITE1_SECRET,
+    prefix: process.env.HOTEL_PREFIX || 'HOTEL',
+    defaultVatRate: parseFloat(process.env.HOTEL_DEFAULT_VAT_RATE || '10'), // Spanish hotel VAT is typically 10%
+    pricesIncludeTax: process.env.HOTEL_PRICES_INCLUDE_TAX !== 'false' // Default true for hotels
+  },
   
   sync: {
     daysBack: parseInt(process.env.SYNC_DAYS_BACK || '1', 10),
