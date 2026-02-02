@@ -22,10 +22,12 @@ export const config = {
     vatRate: parseFloat(process.env.HOLDED_SECONDARY_VAT_RATE || '21')
   },
   
-  sumup: {
-    apiKey: process.env.SUMUP_API_KEY,
-    baseUrl: 'https://api.sumup.com/v0.1',
-    defaultVatRate: parseFloat(process.env.SUMUP_DEFAULT_VAT_RATE || process.env.DEFAULT_VAT_RATE || '21')
+  square: {
+    accessToken: process.env.SQUARE_ACCESS_TOKEN,
+    locationId: process.env.SQUARE_LOCATION_ID || '',
+    sandbox: process.env.SQUARE_SANDBOX === 'true',
+    defaultVatRate: parseFloat(process.env.SQUARE_DEFAULT_VAT_RATE || process.env.DEFAULT_VAT_RATE || '21')
+    // Category-to-account mapping is in src/squareAccounts.js
   },
   
   woocommerce: [
@@ -164,8 +166,8 @@ export function validateConfig() {
     errors.push('HOLDED_SECONDARY_API_KEY is required when HOLDED_SECONDARY_SKUS is configured');
   }
 
-  if (config.woocommerce.length === 0 && !config.sumup.apiKey) {
-    errors.push('At least one WooCommerce site or SumUp API key is required');
+  if (config.woocommerce.length === 0 && !config.square.accessToken) {
+    errors.push('At least one WooCommerce site or Square access token is required');
   }
 
   if (errors.length > 0) {

@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-A Node.js automation tool that syncs products and sales from multiple WooCommerce sites, SumUp, and Hotel Bookings to Holded (Spanish accounting/invoicing software). Runs daily at 8 AM via cron.
+A Node.js automation tool that syncs products and sales from multiple WooCommerce sites, Square, and Hotel Bookings to Holded (Spanish accounting/invoicing software). Runs daily at 8 AM via cron.
 
 ## Architecture
 
 ```
 WooCommerce Sites (x3) ──┐
                          │
-SumUp Transactions ──────┼──► holded-sync ──► Holded API
+Square Payments ─────────┼──► holded-sync ──► Holded API
                          │         │
 Hotel Bookings (MPHB) ───┘         └──► Excel exports (backup)
 ```
@@ -19,8 +19,9 @@ Hotel Bookings (MPHB) ───┘         └──► Excel exports (backup)
 - `src/index.js` - Main entry point, CLI argument handling
 - `src/config.js` - Environment variables and configuration
 - `src/sources/woocommerce.js` - WooCommerce REST API client (READ-ONLY)
-- `src/sources/sumup.js` - SumUp API client (READ-ONLY)
+- `src/sources/square.js` - Square API client (READ-ONLY)
 - `src/sources/hotelBookings.js` - Hotel Bookings REST API client (READ-ONLY)
+- `src/squareAccounts.js` - Square category to Holded account mapping
 - `src/destinations/holded.js` - Holded API client (writes products, contacts, invoices)
 - `src/destinations/excel.js` - Excel export matching Holded import format
 - `src/utils/logger.js` - Winston logger
@@ -31,12 +32,14 @@ Hotel Bookings (MPHB) ───┘         └──► Excel exports (backup)
 ```bash
 npm run sync              # Full sync (products + sales + hotel bookings)
 npm run sync:products     # Products only
-npm run sync:sales        # Yesterday's sales only (WooCommerce + SumUp)
+npm run sync:sales        # Yesterday's sales only (WooCommerce + Square)
+npm run sync:square       # Yesterday's Square transactions only
 npm run sync:bookings     # Yesterday's hotel bookings only
 npm run export            # Excel export only (no API calls to Holded)
 
 # Custom date range
 node src/index.js --sales --from 2025-01-01 --to 2025-01-15
+node src/index.js --square --from 2025-01-01 --to 2025-01-15
 node src/index.js --bookings --from 2025-01-01 --to 2025-01-15
 ```
 
@@ -66,19 +69,29 @@ Key endpoints:
 - `GET /products` - List products (paginated, 100 per page)
 - `GET /orders` - List orders with date filters
 
-### SumUp API (TO BE IMPLEMENTED)
-- Base URL: `https://api.sumup.com/v0.1`
-- Auth: Bearer token or OAuth2
-- Docs: https://developer.sumup.com/api
+### Square API
+- Base URL: `https://connect.squareup.com/v2`
+- Auth: Bearer token (Personal Access Token)
+- Docs: https://developer.squareup.com/reference/square
+- Using official `square` npm SDK
 
-Key endpoints:
-- `GET /me/transactions/history` - List transactions with date filters
+Key endpoints (via SDK):
+- `client.payments.list()` - List payments with date filters
+- `client.orders.retrieve()` - Get order details (line items, SKUs)
+- `client.catalog.list()` - Get catalog items and categories
 
-**SumUp Auth Options:**
-1. API Key (simple): Generate at https://developer.sumup.com/ with `transactions.history` scope
-2. OAuth2 (for more scopes): Client ID + Secret flow
+**Square Setup:**
+1. Go to https://developer.squareup.com/ and sign in
+2. Click Credentials in the left sidebar
+3. Under Production tab, copy your Personal Access Token
+4. Note your Location ID from the Locations tab
 
-Current implementation expects Bearer token auth. May need OAuth2 flow for production use.
+**Implementation Notes:**
+- Fetches completed payments within date range
+- For each payment with an order_id, fetches order details to get line items
+- Categories are loaded from catalog to enable account mapping
+- Payments marked as paid via "Square Balance" payment method in Holded
+- Category-to-account mapping configured in `src/squareAccounts.js`
 
 ### MotoPress Hotel Booking REST API
 - Endpoint: `/wp-json/mphb/v1/bookings`
@@ -118,6 +131,24 @@ WooCommerce Order → normalizeOrder() → Holded Invoice
 }                    }                     }]
                                         }
 ```
+
+### Square Payments
+```
+Square Payment → normalizeTransaction() → Holded Invoice
+{                  {                        {
+  id, amount,  →     orderNumber,       →     contactId, date,
+  orderId,           customer {},              items [{
+  createdAt,         items (from order         name, sku,
+  status             or single item),          units, subtotal,
+}                    total, tax,               tax, account
+                     category (per item)     }]
+                   }                        }
+```
+
+**Square Account Mapping:**
+- Each Square item includes its category from the catalog
+- Categories are mapped to Holded accounts in `src/squareAccounts.js`
+- VAT rate is taken from the Holded product (if exists) or from Square item's actual tax
 
 ### Hotel Bookings
 ```
@@ -161,8 +192,13 @@ HOTEL_PRODUCT_SKU=HOTEL-RESERVA # Product SKU in Holded for all bookings (for co
 HOTEL_DEFAULT_VAT_RATE=10       # Spanish hotel VAT (10%)
 # HOTEL_URL=                    # Optional: defaults to WC_SITE1_URL
 
-# Optional
-SUMUP_API_KEY=            # Leave empty to skip SumUp
+# Optional - Square
+SQUARE_ACCESS_TOKEN=      # Personal Access Token from Square Developer Console
+SQUARE_LOCATION_ID=       # Your Square location ID (optional, filters by location)
+SQUARE_SANDBOX=false      # Set to true for sandbox testing
+# Category-to-account mapping is in src/squareAccounts.js
+
+# Other options
 HOLDED_DOC_TYPE=invoice   # or salesreceipt
 DEFAULT_VAT_RATE=21       # Fallback tax rate
 SYNC_DAYS_BACK=1          # Default lookback for sales/bookings
@@ -178,6 +214,9 @@ node src/index.js --excel-only
 
 # Test single day for sales
 node src/index.js --sales --from 2025-12-28 --to 2025-12-28
+
+# Test Square transactions for specific date range
+node src/index.js --square --from 2025-01-01 --to 2025-01-15
 
 # Test hotel bookings for specific date range
 node src/index.js --bookings --from 2025-01-01 --to 2025-01-31
@@ -199,13 +238,14 @@ If API fails, Excel files in `/exports` can be manually imported:
 - ES Modules (`"type": "module"` in package.json)
 - Async/await throughout
 - Winston for logging
-- Axios for HTTP (except WooCommerce which uses their SDK)
+- Axios for HTTP (except WooCommerce and Square which use their official SDKs)
 - No TypeScript, plain JavaScript
 
 ## Important Constraints
 
-- **WooCommerce, SumUp, and Hotel Bookings are READ-ONLY** - Never modify source data
+- **WooCommerce, Square, and Hotel Bookings are READ-ONLY** - Never modify source data
 - **Holded is the only write target** - Products, contacts, invoices
 - **Spanish context** - Dates as dd/mm/yyyy, VAT (IVA), Spanish field names in Excel exports
 - **Hotel bookings sync** - By default uses WC_SITE1 credentials if HOTEL_URL not specified
+- **Square payments** - Marked as paid via "Square Balance" payment method; category-to-account mapping in `src/squareAccounts.js`
 

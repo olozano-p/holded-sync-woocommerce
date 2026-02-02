@@ -1,7 +1,7 @@
 {
   "name": "holded-sync",
   "version": "1.0.0",
-  "description": "Sync products and sales from WooCommerce & SumUp to Holded",
+  "description": "Sync products and sales from WooCommerce, Square & Hotel Bookings to Holded",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "sync": "node src/index.js",
     "sync:products": "node src/index.js --products",
     "sync:sales": "node src/index.js --sales",
+    "sync:square": "node src/index.js --square",
     "sync:bookings": "node src/index.js --bookings",
     "export": "node src/index.js --excel-only"
   },
@@ -18,11 +19,12 @@
     "dotenv": "^16.3.1",
     "exceljs": "^4.4.0",
     "minimist": "^1.2.8",
+    "square": "^42.0.0",
     "winston": "^3.11.0"
   },
   "engines": {
     "node": ">=18.0.0"
   },
-  "keywords": ["holded", "woocommerce", "sumup", "sync"],
+  "keywords": ["holded", "woocommerce", "square", "sync"],
   "license": "MIT"
 }

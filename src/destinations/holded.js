@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
+import { getAccountForCategory, squareDefaultAccount } from '../squareAccounts.js';
 
 export class HoldedClient {
   constructor(apiKey = null, accountName = 'primary') {
@@ -173,9 +174,9 @@ export class HoldedClient {
       vatRateMap.set(site.prefix, site.defaultVatRate);
     });
 
-    // Add SumUp VAT rate if configured
-    if (config.sumup.apiKey) {
-      vatRateMap.set('SUMUP', config.sumup.defaultVatRate);
+    // Add Square VAT rate if configured
+    if (config.square?.accessToken) {
+      vatRateMap.set('SQUARE', config.square.defaultVatRate);
     }
 
     for (const product of products) {
@@ -323,8 +324,10 @@ export class HoldedClient {
         }
 
         // Use product VAT rate if available, otherwise fallback to calculated/configured rates
+        // For Square items, item.taxRate comes from actual tax on the transaction
         const effectiveTaxRate = productVatRate !== null ? productVatRate :
-                                (item.taxRate || siteVatRate || config.sync.defaultVatRate);
+                                (item.taxRate !== null && item.taxRate !== undefined ? item.taxRate :
+                                (siteVatRate || config.sync.defaultVatRate));
 
         // Try approach: Let Holded calculate subtotal from total and product's own VAT rate
         const unitPriceWithTax = item.totalWithTax / item.quantity;
@@ -334,7 +337,8 @@ export class HoldedClient {
           ? unitPriceWithTax / (1 + effectiveTaxRate / 100)
           : unitPriceWithTax;
 
-        return {
+        // Build the line item
+        const lineItem = {
           name: item.name,
           desc: item.description || '',
           sku: item.sku || '',
@@ -343,6 +347,21 @@ export class HoldedClient {
           discount: item.discount || 0,
           tax: effectiveTaxRate  // Product's actual VAT rate from Holded
         };
+
+        // For Square items with category, apply category-to-account mapping
+        if (order.source === 'square') {
+          const accountCode = getAccountForCategory(item.category);
+          if (accountCode) {
+            lineItem.account = accountCode;
+            logger.debug(`Mapped category "${item.category}" to account ${accountCode}`);
+          } else if (squareDefaultAccount && !holdedProduct?.salesChannelId) {
+            // Use default account if no category match and no product sales channel
+            lineItem.account = squareDefaultAccount;
+            logger.debug(`Using default Square account ${squareDefaultAccount}`);
+          }
+        }
+
+        return lineItem;
       }),
       
       // Tags for filtering
@@ -437,6 +456,11 @@ export class HoldedClient {
     // Add SumUp VAT rate if configured
     if (config.sumup.apiKey) {
       vatRateMap.set('SUMUP', config.sumup.defaultVatRate);
+    }
+
+    // Add Square VAT rate if configured
+    if (config.square?.accessToken) {
+      vatRateMap.set('SQUARE', config.square.defaultVatRate);
     }
 
     for (const order of orders) {
