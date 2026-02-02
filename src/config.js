@@ -7,7 +7,8 @@ export const config = {
     docType: process.env.HOLDED_DOC_TYPE || 'invoice',
     numberingFormat: process.env.HOLDED_NUMBERING_FORMAT || 'F[YY]%%%%',
     salesChannel: process.env.HOLDED_SALES_CHANNEL || '',
-    warehouse: process.env.HOLDED_WAREHOUSE || ''
+    warehouse: process.env.HOLDED_WAREHOUSE || '',
+    createAsDraft: process.env.HOLDED_CREATE_AS_DRAFT !== 'false'  // Default: true (draft)
   },
 
   holdedSecondary: {

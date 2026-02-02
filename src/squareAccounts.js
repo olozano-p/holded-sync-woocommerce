@@ -1,50 +1,50 @@
 /**
- * Square Category to Holded Account Mapping
+ * Square Category to Holded Sales Channel Mapping
  *
- * Maps Square catalog categories to Holded account codes (cuentas contables).
+ * Maps Square catalog categories to Holded sales channel names.
  * The category names should match exactly what's in your Square catalog.
- * Account codes are the Holded "cuenta contable" numbers.
+ * Sales channel names must match exactly what's in Holded (case-sensitive).
  *
- * Example: Items in "00. Begudes Bar Amrita" category will use account 70000002
+ * The sales channel in Holded determines the cuenta contable.
  */
 
-export const squareCategoryAccounts = {
-  '00. Begudes Bar Amrita': '70000002',
-  '02. Restaurant Amrita': '70000002',
-  '04. Llibres': '70000001',
-  '01. Tapes Bar Amrita': '70000002',
-  '07. Hotel Can Bordoi': '70500007',
-  '03. Vins Amrita': '70000002',
-  '02. Entrepans Amrita': '70000002',
-  '05. Artesanies': '70000001',
+export const squareCategorySalesChannels = {
+  '00. Begudes Bar Amrita': 'Restaurant i Bar',
+  '01. Tapes Bar Amrita': 'Restaurant i Bar',
+  '02. Restaurant Amrita': 'Restaurant i Bar',
+  '02. Entrepans Amrita': 'Restaurant i Bar',
+  '03. Vins Amrita': 'Restaurant i Bar',
+  '04. Llibres': 'Cantir',
+  '05. Artesanies': 'Cantir',
+  '07. Hotel Can Bordoi': 'Hotel',
 };
 
 /**
- * Default account for Square items that don't match any category
- * Set to null to skip account assignment for unmatched categories
+ * Default sales channel for Square items that don't match any category
+ * Set to null to skip sales channel assignment for unmatched categories
  */
-export const squareDefaultAccount = '70000002';
+export const squareDefaultSalesChannel = 'Restaurant i Bar';
 
 /**
- * Get account code for a Square category
+ * Get sales channel name for a Square category
  * @param {string} categoryName - The category name from Square
- * @returns {string|null} The Holded account code, or null if not mapped
+ * @returns {string|null} The Holded sales channel name, or null if not mapped
  */
-export function getAccountForCategory(categoryName) {
-  if (!categoryName) return squareDefaultAccount;
+export function getSalesChannelForCategory(categoryName) {
+  if (!categoryName) return squareDefaultSalesChannel;
 
   // Try exact match first
-  if (squareCategoryAccounts[categoryName]) {
-    return squareCategoryAccounts[categoryName];
+  if (squareCategorySalesChannels[categoryName]) {
+    return squareCategorySalesChannels[categoryName];
   }
 
   // Try case-insensitive match
   const lowerCategory = categoryName.toLowerCase();
-  for (const [key, value] of Object.entries(squareCategoryAccounts)) {
+  for (const [key, value] of Object.entries(squareCategorySalesChannels)) {
     if (key.toLowerCase() === lowerCategory) {
       return value;
     }
   }
 
-  return squareDefaultAccount;
+  return squareDefaultSalesChannel;
 }

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
-import { getAccountForCategory, squareDefaultAccount } from '../squareAccounts.js';
+import { getSalesChannelForCategory, squareDefaultSalesChannel } from '../squareAccounts.js';
 
 export class HoldedClient {
   constructor(apiKey = null, accountName = 'primary') {
@@ -68,6 +68,8 @@ export class HoldedClient {
       const response = await this.client.get('/saleschannels');
       (response.data || []).forEach(ch => {
         this.salesChannels.set(ch.name, ch.id);
+        // Also log for debugging
+        logger.debug(`Sales channel: "${ch.name}" -> ${ch.id}`);
       });
       logger.debug(`Loaded ${this.salesChannels.size} sales channels`);
     } catch (error) {
@@ -275,8 +277,14 @@ export class HoldedClient {
    * docType options: invoice, salesreceipt, creditnote, salesorder, proform, waybill, estimate
    */
   async createInvoice(order, docType = 'invoice', siteVatRate = null) {
-    const contactId = order.customer 
-      ? await this.findOrCreateContact(order.customer) 
+    // Skip orders with total = 0 (likely cancelled transactions)
+    if (!order.total || order.total === 0) {
+      logger.info(`Skipping order ${order.orderNumber || order.id} with total = 0 (cancelled transaction)`);
+      return { success: true, skipped: true };
+    }
+
+    const contactId = order.customer
+      ? await this.findOrCreateContact(order.customer)
       : null;
     
     // Build invoice data per Holded API spec
@@ -299,8 +307,11 @@ export class HoldedClient {
       }),
       
       // Document metadata
-      desc: `${order.source.toUpperCase()} - ${order.siteName || 'SumUp'} #${order.orderNumber || order.transactionCode || order.id}`,
-      date: Math.floor(new Date(order.date).getTime() / 1000), // Unix timestamp
+      desc: `${order.source.toUpperCase()} - ${order.siteName || 'Square'} #${order.orderNumber || order.transactionCode || order.id}`,
+      date: Math.floor(new Date(order.date).getTime() / 1000),
+
+      // Draft status (0 = draft, 1 = approved)
+      status: config.holded.createAsDraft ? 0 : 1, // Unix timestamp
       
       // Due date (same as date for immediate payment)
       dueDate: Math.floor(new Date(order.date).getTime() / 1000),
@@ -323,8 +334,7 @@ export class HoldedClient {
           }
         }
 
-        // Use product VAT rate if available, otherwise fallback to calculated/configured rates
-        // For Square items, item.taxRate comes from actual tax on the transaction
+        // Use product VAT rate if available, then item's tax rate from source, then configured default
         const effectiveTaxRate = productVatRate !== null ? productVatRate :
                                 (item.taxRate !== null && item.taxRate !== undefined ? item.taxRate :
                                 (siteVatRate || config.sync.defaultVatRate));
@@ -337,29 +347,25 @@ export class HoldedClient {
           ? unitPriceWithTax / (1 + effectiveTaxRate / 100)
           : unitPriceWithTax;
 
+        // Calculate discount as percentage if we have both discount amount and subtotal
+        // Holded expects discount as a percentage (0-100)
+        let discountPercent = 0;
+        if (item.discount && item.discount > 0 && calculatedSubtotal > 0) {
+          // item.discount is the amount discounted, convert to percentage of original price
+          const originalSubtotal = calculatedSubtotal + item.discount;
+          discountPercent = (item.discount / originalSubtotal) * 100;
+        }
+
         // Build the line item
         const lineItem = {
           name: item.name,
           desc: item.description || '',
           sku: item.sku || '',
           units: item.quantity || 1,
-          subtotal: calculatedSubtotal,  // Calculated using product's actual VAT rate
-          discount: item.discount || 0,
+          subtotal: calculatedSubtotal + (item.discount || 0),  // Original price before discount
+          discount: discountPercent,  // Discount as percentage
           tax: effectiveTaxRate  // Product's actual VAT rate from Holded
         };
-
-        // For Square items with category, apply category-to-account mapping
-        if (order.source === 'square') {
-          const accountCode = getAccountForCategory(item.category);
-          if (accountCode) {
-            lineItem.account = accountCode;
-            logger.debug(`Mapped category "${item.category}" to account ${accountCode}`);
-          } else if (squareDefaultAccount && !holdedProduct?.salesChannelId) {
-            // Use default account if no category match and no product sales channel
-            lineItem.account = squareDefaultAccount;
-            logger.debug(`Using default Square account ${squareDefaultAccount}`);
-          }
-        }
 
         return lineItem;
       }),
@@ -371,10 +377,26 @@ export class HoldedClient {
         order.paymentMethod || order.paymentType
       ].filter(Boolean),
 
-      // Sales channel - get from first product's salesChannelId (determines cuenta contable)
+      // Sales channel - determines cuenta contable
       ...(() => {
         const firstItemSku = order.items?.[0]?.sku;
         const firstProduct = firstItemSku ? this.existingProducts.get(firstItemSku) : null;
+
+        // For Square orders, use category-to-sales-channel mapping
+        if (order.source === 'square') {
+          const firstItem = order.items?.[0];
+          const category = firstItem?.category;
+          const salesChannelName = getSalesChannelForCategory(category);
+          if (salesChannelName && this.salesChannels.has(salesChannelName)) {
+            const salesChannelId = this.salesChannels.get(salesChannelName);
+            logger.info(`Square invoice: mapped category "${category}" to sales channel "${salesChannelName}" (${salesChannelId})`);
+            return { salesChannelId };
+          } else if (salesChannelName) {
+            logger.warn(`Sales channel "${salesChannelName}" not found in Holded for category "${category}"`);
+          }
+        }
+
+        // For other sources, use product's salesChannelId
         if (firstProduct?.salesChannelId) {
           logger.debug(`Using salesChannelId ${firstProduct.salesChannelId} from product ${firstItemSku}`);
           return { salesChannelId: firstProduct.salesChannelId };
@@ -394,6 +416,9 @@ export class HoldedClient {
       // Notes
       notes: order.notes || `Imported from ${order.source}`
     };
+
+    // Debug: log the invoice data being sent
+    logger.debug(`Invoice data for ${order.orderNumber || order.id}: ${JSON.stringify(invoiceData, null, 2)}`);
 
     try {
       const response = await this.client.post(`/documents/${docType}`, invoiceData);
@@ -445,18 +470,13 @@ export class HoldedClient {
   async syncOrders(orders, docType = 'invoice', siteConfigs = []) {
     await this.initialize();
 
-    const results = { created: 0, errors: 0 };
+    const results = { created: 0, skipped: 0, errors: 0 };
 
     // Create a map of site prefixes to VAT rates for quick lookup
     const vatRateMap = new Map();
     siteConfigs.forEach(site => {
       vatRateMap.set(site.prefix, site.defaultVatRate);
     });
-
-    // Add SumUp VAT rate if configured
-    if (config.sumup.apiKey) {
-      vatRateMap.set('SUMUP', config.sumup.defaultVatRate);
-    }
 
     // Add Square VAT rate if configured
     if (config.square?.accessToken) {
@@ -468,13 +488,19 @@ export class HoldedClient {
       const siteVatRate = order.sitePrefix ? vatRateMap.get(order.sitePrefix) : null;
 
       const result = await this.createInvoice(order, docType, siteVatRate);
-      results[result.success ? 'created' : 'errors']++;
+      if (result.skipped) {
+        results.skipped++;
+      } else if (result.success) {
+        results.created++;
+      } else {
+        results.errors++;
+      }
 
       // Rate limiting
       await this.sleep(200);
     }
 
-    logger.info(`Order sync complete (${this.accountName}): ${results.created} ${docType}s created, ${results.errors} errors`);
+    logger.info(`Order sync complete (${this.accountName}): ${results.created} ${docType}s created, ${results.skipped} skipped, ${results.errors} errors`);
     return results;
   }
 

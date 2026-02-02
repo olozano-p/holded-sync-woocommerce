@@ -1,14 +1,16 @@
-import { SquareClient, SquareEnvironment } from 'square';
+import axios from 'axios';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 
 export class SquareSource {
   constructor() {
-    this.client = new SquareClient({
-      token: config.square.accessToken,
-      environment: config.square.sandbox
-        ? SquareEnvironment.Sandbox
-        : SquareEnvironment.Production
+    this.client = axios.create({
+      baseURL: 'https://connect.squareup.com/v2',
+      headers: {
+        'Authorization': `Bearer ${config.square.accessToken}`,
+        'Content-Type': 'application/json',
+        'Square-Version': '2024-01-18'
+      }
     });
     this.locationId = config.square.locationId;
 
@@ -29,19 +31,18 @@ export class SquareSource {
       // First, load all categories
       let cursor = null;
       do {
-        const params = { types: ['CATEGORY'], limit: 100 };
+        const params = { types: 'CATEGORY', limit: 100 };
         if (cursor) params.cursor = cursor;
 
-        const response = await this.client.catalog.list(params);
+        const response = await this.client.get('/catalog/list', { params });
+        const objects = response.data.objects || [];
 
-        if (response.objects) {
-          for (const obj of response.objects) {
-            if (obj.type === 'CATEGORY' && obj.categoryData) {
-              this.categories.set(obj.id, obj.categoryData.name);
-            }
+        for (const obj of objects) {
+          if (obj.type === 'CATEGORY' && obj.category_data) {
+            this.categories.set(obj.id, obj.category_data.name);
           }
         }
-        cursor = response.cursor;
+        cursor = response.data.cursor;
       } while (cursor);
 
       logger.debug(`Loaded ${this.categories.size} categories from Square`);
@@ -49,42 +50,43 @@ export class SquareSource {
       // Then load all items (products)
       cursor = null;
       do {
-        const params = { types: ['ITEM'], limit: 100 };
+        const params = { types: 'ITEM', limit: 100 };
         if (cursor) params.cursor = cursor;
 
-        const response = await this.client.catalog.list(params);
+        const response = await this.client.get('/catalog/list', { params });
+        const objects = response.data.objects || [];
 
-        if (response.objects) {
-          for (const obj of response.objects) {
-            if (obj.type === 'ITEM' && obj.itemData) {
-              const categoryId = obj.itemData.categoryId || obj.itemData.reportingCategory?.id;
-              const categoryName = categoryId ? this.categories.get(categoryId) : null;
+        for (const obj of objects) {
+          const itemData = obj.item_data;
+          if (obj.type === 'ITEM' && itemData) {
+            const categoryId = itemData.category_id || itemData.reporting_category?.id;
+            const categoryName = categoryId ? this.categories.get(categoryId) : null;
 
-              // Store the item info
-              this.catalogItems.set(obj.id, {
-                name: obj.itemData.name,
-                categoryId: categoryId,
-                categoryName: categoryName,
-                description: obj.itemData.description || ''
-              });
+            // Store the item info
+            this.catalogItems.set(obj.id, {
+              name: itemData.name,
+              categoryId: categoryId,
+              categoryName: categoryName,
+              description: itemData.description || ''
+            });
 
-              // Also store each variation (these are what appear in orders)
-              if (obj.itemData.variations) {
-                for (const variation of obj.itemData.variations) {
-                  this.catalogItems.set(variation.id, {
-                    name: obj.itemData.name,
-                    variationName: variation.itemVariationData?.name,
-                    categoryId: categoryId,
-                    categoryName: categoryName,
-                    sku: variation.itemVariationData?.sku || '',
-                    description: obj.itemData.description || ''
-                  });
-                }
+            // Also store each variation (these are what appear in orders)
+            if (itemData.variations) {
+              for (const variation of itemData.variations) {
+                const variationData = variation.item_variation_data;
+                this.catalogItems.set(variation.id, {
+                  name: itemData.name,
+                  variationName: variationData?.name,
+                  categoryId: categoryId,
+                  categoryName: categoryName,
+                  sku: variationData?.sku || '',
+                  description: itemData.description || ''
+                });
               }
             }
           }
         }
-        cursor = response.cursor;
+        cursor = response.data.cursor;
       } while (cursor);
 
       logger.info(`Loaded ${this.catalogItems.size} catalog items from Square`);
@@ -115,50 +117,47 @@ export class SquareSource {
       const endTime = `${dateTo}T23:59:59Z`;
 
       do {
-        const listParams = {
-          beginTime,
-          endTime,
-          sortOrder: 'ASC',
+        const params = {
+          begin_time: beginTime,
+          end_time: endTime,
+          sort_order: 'ASC',
           limit: 100
         };
 
         // Filter by location if specified
         if (this.locationId) {
-          listParams.locationId = this.locationId;
+          params.location_id = this.locationId;
         }
 
         if (cursor) {
-          listParams.cursor = cursor;
+          params.cursor = cursor;
         }
 
-        const response = await this.client.payments.list(listParams);
+        const response = await this.client.get('/payments', { params });
+        const items = response.data.payments || [];
 
-        if (response.payments) {
-          // Only include completed payments
-          const completedPayments = response.payments.filter(p => p.status === 'COMPLETED');
-          payments.push(...completedPayments);
-          logger.debug(`Fetched ${completedPayments.length} completed payments from Square`);
-        }
+        // Only include completed payments
+        const completedPayments = items.filter(p => p.status === 'COMPLETED');
+        payments.push(...completedPayments);
+        logger.debug(`Fetched ${completedPayments.length} completed payments from Square`);
 
-        cursor = response.cursor;
+        cursor = response.data.cursor;
       } while (cursor);
 
       logger.info(`Fetched ${payments.length} payments from Square`);
 
-      // Fetch order details for payments that have an orderId
+      // Fetch order details for payments that have an order_id
       const normalizedTransactions = [];
 
       for (const payment of payments) {
         let order = null;
 
-        if (payment.orderId) {
+        if (payment.order_id) {
           try {
-            const orderResponse = await this.client.orders.retrieve({
-              orderId: payment.orderId
-            });
-            order = orderResponse.order;
+            const orderResponse = await this.client.get(`/orders/${payment.order_id}`);
+            order = orderResponse.data.order;
           } catch (err) {
-            logger.warn(`Could not fetch order ${payment.orderId} for payment ${payment.id}: ${err.message}`);
+            logger.warn(`Could not fetch order ${payment.order_id} for payment ${payment.id}: ${err.message}`);
           }
         }
 
@@ -167,9 +166,9 @@ export class SquareSource {
 
       return normalizedTransactions;
     } catch (error) {
-      if (error.statusCode === 401) {
+      if (error.response?.status === 401) {
         logger.error('Square authentication failed. Check your access token.');
-      } else if (error.statusCode === 429) {
+      } else if (error.response?.status === 429) {
         logger.error('Square rate limit exceeded. Try again later.');
       } else {
         logger.error(`Error fetching Square payments: ${error.message}`);
@@ -186,15 +185,26 @@ export class SquareSource {
    */
   normalizeTransaction(payment, order = null) {
     // Convert Square's money amounts (in smallest currency unit, e.g., cents) to decimal
-    const amount = this.convertMoney(payment.amountMoney);
-    const tip = this.convertMoney(payment.tipMoney);
-    const fee = this.convertMoney(payment.processingFee?.[0]?.amountMoney);
+    const amount = this.convertMoney(payment.amount_money);
+    const tip = this.convertMoney(payment.tip_money);
+    const fee = this.convertMoney(payment.processing_fee?.[0]?.amount_money);
 
     // Build line items from order if available, otherwise single item from payment
     let items;
 
-    if (order && order.lineItems && order.lineItems.length > 0) {
-      items = order.lineItems.map(item => this.normalizeLineItem(item));
+    const lineItems = order?.line_items || [];
+    // Build a map of tax_uid -> percentage from order's taxes array
+    const taxRates = new Map();
+    if (order?.taxes) {
+      for (const tax of order.taxes) {
+        if (tax.uid && tax.percentage) {
+          taxRates.set(tax.uid, parseFloat(tax.percentage));
+        }
+      }
+    }
+
+    if (order && lineItems.length > 0) {
+      items = lineItems.map(item => this.normalizeLineItem(item, taxRates));
     } else {
       // No order details - create single line item from payment total
       const netAmount = amount - tip;
@@ -215,10 +225,12 @@ export class SquareSource {
 
     // Extract customer info if available
     let customer = null;
-    if (payment.buyerEmailAddress || order?.customerId) {
+    const buyerEmail = payment.buyer_email_address;
+    const customerId = order?.customer_id;
+    if (buyerEmail || customerId) {
       customer = {
-        email: payment.buyerEmailAddress || '',
-        name: order?.customerId ? `Square Customer ${order.customerId.substring(0, 8)}` : '',
+        email: buyerEmail || '',
+        name: customerId ? `Square Customer ${customerId.substring(0, 8)}` : '',
         phone: ''
       };
     }
@@ -232,18 +244,18 @@ export class SquareSource {
       sitePrefix: 'SQUARE',
       siteName: 'Square',
       id: payment.id,
-      orderNumber: payment.receiptNumber || payment.id.substring(0, 12),
+      orderNumber: payment.receipt_number || payment.id.substring(0, 12),
       transactionCode: payment.id,
-      date: payment.createdAt,
+      date: payment.created_at,
       total: totalWithTax + tip,
       subtotal: totalWithTax - totalTax,
       tax: totalTax,
-      currency: payment.amountMoney?.currency || 'EUR',
+      currency: payment.amount_money?.currency || 'EUR',
       status: payment.status,
       paymentMethod: 'Square Balance',  // Matches Holded payment method name
       paymentType: this.getPaymentType(payment),
-      cardBrand: payment.cardDetails?.card?.cardBrand,
-      cardLast4: payment.cardDetails?.card?.last4,
+      cardBrand: payment.card_details?.card?.card_brand,
+      cardLast4: payment.card_details?.card?.last_4,
       tip: tip,
       fee: fee,
       customer: customer,
@@ -251,9 +263,9 @@ export class SquareSource {
       paid: payment.status === 'COMPLETED',
       metadata: {
         squarePaymentId: payment.id,
-        squareOrderId: payment.orderId,
-        squareLocationId: payment.locationId,
-        receiptUrl: payment.receiptUrl
+        squareOrderId: payment.order_id,
+        squareLocationId: payment.location_id,
+        receiptUrl: payment.receipt_url
       }
     };
   }
@@ -261,35 +273,46 @@ export class SquareSource {
   /**
    * Normalize a Square order line item
    * @param {Object} item - Square order line item
+   * @param {Map} taxRates - Map of tax_uid -> percentage from order's taxes array
    * @returns {Object} Normalized line item
    */
-  normalizeLineItem(item) {
+  normalizeLineItem(item, taxRates = new Map()) {
     const quantity = parseFloat(item.quantity) || 1;
 
     // Square stores amounts in smallest currency unit (cents)
-    const totalWithTax = this.convertMoney(item.grossSalesMoney) ||
-                         this.convertMoney(item.totalMoney) || 0;
+    // gross_sales_money = base_price × quantity (BEFORE discounts and taxes)
+    // total_discount_money = discount amount
+    // total_tax_money = tax amount
+    // total_money = final amount (gross - discount + tax)
+    const grossSales = this.convertMoney(item.gross_sales_money) || 0;
+    const totalDiscount = this.convertMoney(item.total_discount_money) || 0;
+    const tax = this.convertMoney(item.total_tax_money) || 0;
+    const totalWithTax = this.convertMoney(item.total_money) || 0;
 
-    // Get tax from item if available
-    const tax = this.convertMoney(item.totalTaxMoney) || 0;
-    const total = totalWithTax - tax;
+    // Net amount after discount, before tax
+    const total = grossSales - totalDiscount;
 
-    // Calculate price per unit
-    const pricePerUnit = quantity > 0 ? total / quantity : total;
+    // Calculate price per unit (before discount)
+    const pricePerUnit = quantity > 0 ? grossSales / quantity : grossSales;
 
     // Look up catalog info for this item
-    const catalogInfo = item.catalogObjectId
-      ? this.catalogItems.get(item.catalogObjectId)
+    const catalogObjectId = item.catalog_object_id;
+    const catalogInfo = catalogObjectId
+      ? this.catalogItems.get(catalogObjectId)
       : null;
+
+    // Debug logging
+    logger.debug(`Line item "${item.name}" - catalog_object_id: ${catalogObjectId}, found in catalog: ${!!catalogInfo}, category: ${catalogInfo?.categoryName || 'null'}`);
 
     // Get SKU - prefer catalog SKU, then generate from catalog ID or item name
     let sku = '';
+    const variationName = item.variation_name;
     if (catalogInfo?.sku) {
       sku = catalogInfo.sku;
-    } else if (item.catalogObjectId) {
-      sku = `SQUARE-${item.catalogObjectId.substring(0, 12)}`;
-    } else if (item.variationName) {
-      sku = `SQUARE-${item.variationName.replace(/\s+/g, '-').substring(0, 20)}`;
+    } else if (catalogObjectId) {
+      sku = `SQUARE-${catalogObjectId.substring(0, 12)}`;
+    } else if (variationName) {
+      sku = `SQUARE-${variationName.replace(/\s+/g, '-').substring(0, 20)}`;
     } else {
       sku = `SQUARE-${item.uid || 'ITEM'}`;
     }
@@ -297,27 +320,37 @@ export class SquareSource {
     // Get category from catalog
     const category = catalogInfo?.categoryName || null;
 
-    // Determine tax rate from the actual tax on this item
-    // This will be overridden by Holded product's VAT if the product exists
+    // Get tax rate from applied_taxes (the actual tax percentage configured in Square)
     let taxRate = null;
-    if (total > 0 && tax > 0) {
+    if (item.applied_taxes && item.applied_taxes.length > 0) {
+      // Get the tax_uid from the first applied tax and look up the percentage
+      const appliedTax = item.applied_taxes[0];
+      if (appliedTax.tax_uid && taxRates.has(appliedTax.tax_uid)) {
+        taxRate = taxRates.get(appliedTax.tax_uid);
+        logger.debug(`Tax rate for "${item.name}": ${taxRate}% (from Square tax config)`);
+      }
+    }
+    // Fallback: calculate from amounts if no applied_taxes
+    if (taxRate === null && total > 0 && tax > 0) {
       taxRate = Math.round((tax / total) * 100);
+      logger.debug(`Tax rate for "${item.name}": ${taxRate}% (calculated from amounts)`);
     }
 
     return {
       sku: sku,
       name: item.name || catalogInfo?.name || 'Square Item',
-      description: item.variationName || catalogInfo?.variationName || item.note || '',
+      description: variationName || catalogInfo?.variationName || item.note || '',
       quantity: quantity,
-      price: pricePerUnit,
-      total: total,
-      totalWithTax: totalWithTax,
+      price: pricePerUnit,  // Unit price before discount
+      grossSales: grossSales,  // Total before discount (price × quantity)
+      total: total,  // After discount, before tax
+      totalWithTax: totalWithTax,  // Final amount including tax
       tax: tax,
       taxRate: taxRate,  // Will be overridden by Holded product VAT if available
-      discount: this.convertMoney(item.totalDiscountMoney) || 0,
+      discount: totalDiscount,  // Discount amount in currency
       // Category info for account mapping
       category: category,
-      catalogObjectId: item.catalogObjectId
+      catalogObjectId: catalogObjectId
     };
   }
 
@@ -339,17 +372,20 @@ export class SquareSource {
    * @returns {string} Payment type
    */
   getPaymentType(payment) {
-    if (payment.cardDetails) {
-      return `Card (${payment.cardDetails.card?.cardBrand || 'Unknown'})`;
+    if (payment.card_details) {
+      return `Card (${payment.card_details.card?.card_brand || 'Unknown'})`;
     }
-    if (payment.cashDetails) {
+    if (payment.cash_details) {
       return 'Cash';
     }
-    if (payment.bankAccountDetails) {
+    if (payment.bank_account_details) {
       return 'Bank Transfer';
     }
-    if (payment.externalDetails) {
-      return payment.externalDetails.type || 'External';
+    if (payment.external_details) {
+      return payment.external_details.type || 'External';
+    }
+    if (payment.source_type === 'SQUARE_ACCOUNT') {
+      return 'Square Account';
     }
     return 'Square';
   }
