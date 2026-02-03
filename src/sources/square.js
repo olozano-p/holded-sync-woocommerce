@@ -252,7 +252,7 @@ export class SquareSource {
       tax: totalTax,
       currency: payment.amount_money?.currency || 'EUR',
       status: payment.status,
-      paymentMethod: 'Square Balance',  // Matches Holded payment method name
+      paymentMethod: this.getHoldedPaymentMethod(payment),  // Maps to correct Holded payment account
       paymentType: this.getPaymentType(payment),
       cardBrand: payment.card_details?.card?.card_brand,
       cardLast4: payment.card_details?.card?.last_4,
@@ -388,6 +388,29 @@ export class SquareSource {
       return 'Square Account';
     }
     return 'Square';
+  }
+
+  /**
+   * Get the Holded payment method name based on Square payment type
+   * Maps Square payment types to Holded payment accounts:
+   * - Card/Wallet/Buy Now Pay Later → "Square Balance" (settled to Square)
+   * - Cash payments → "Square Cash Clearing"
+   * - Bank/External payments → "Square Other Payments Clearing"
+   * @param {Object} payment - Square payment object
+   * @returns {string} Holded payment method name
+   */
+  getHoldedPaymentMethod(payment) {
+    // Cash payments go to cash clearing
+    if (payment.cash_details) {
+      return 'Square Cash Clearing';
+    }
+    // Bank transfers and external payments go to other clearing
+    if (payment.bank_account_details || payment.external_details) {
+      return 'Square Other Payments Clearing';
+    }
+    // Everything else (card, wallet, buy now pay later) goes to Square Balance
+    // This includes: card_details, wallet_details, buy_now_pay_later_details
+    return 'Square Balance';
   }
 }
 

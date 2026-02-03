@@ -91,11 +91,12 @@ export class HoldedClient {
 
   async loadPaymentMethods() {
     try {
-      const response = await this.client.get('/paymentmethods');
+      const response = await this.client.get('/treasury');
       (response.data || []).forEach(pm => {
         this.paymentMethods.set(pm.name?.toLowerCase(), pm.id);
+        logger.debug(`Payment method: "${pm.name}" -> ${pm.id}`);
       });
-      logger.debug(`Loaded ${this.paymentMethods.size} payment methods`);
+      logger.info(`Loaded ${this.paymentMethods.size} payment methods (treasury accounts)`);
     } catch (error) {
       logger.warn(`Failed to load payment methods: ${error.message}`);
     }
@@ -369,13 +370,6 @@ export class HoldedClient {
 
         return lineItem;
       }),
-      
-      // Tags for filtering
-      tags: [
-        order.source,
-        order.sitePrefix,
-        order.paymentMethod || order.paymentType
-      ].filter(Boolean),
 
       // Sales channel - determines cuenta contable
       ...(() => {
@@ -453,10 +447,14 @@ export class HoldedClient {
         desc: `Pago ${order.paymentMethod || order.paymentType || 'auto'}`
       };
       
-      // Add payment method ID if we can match it
+      // Add treasury account ID if we can match it
       const paymentMethodKey = (order.paymentMethod || order.paymentType || '').toLowerCase();
       if (this.paymentMethods.has(paymentMethodKey)) {
-        paymentData.paymentMethodId = this.paymentMethods.get(paymentMethodKey);
+        const treasuryId = this.paymentMethods.get(paymentMethodKey);
+        paymentData.treasury = treasuryId;
+        logger.debug(`Treasury account "${paymentMethodKey}" matched -> ${treasuryId}`);
+      } else {
+        logger.warn(`Treasury account "${paymentMethodKey}" not found in Holded. Available: ${Array.from(this.paymentMethods.keys()).join(', ')}`);
       }
       
       await this.client.post(`/documents/${docType}/${documentId}/pay`, paymentData);

@@ -90,7 +90,10 @@ Key endpoints (via SDK):
 - Fetches completed payments within date range
 - For each payment with an order_id, fetches order details to get line items
 - Categories are loaded from catalog to enable account mapping
-- Payments marked as paid via "Square Balance" payment method in Holded
+- Payments mapped to Holded payment accounts based on payment type:
+  - Card payments → "Square Balance"
+  - Cash payments → "Square Cash Clearing"
+  - Other payments → "Square Other Payments Clearing"
 - Category-to-account mapping configured in `src/squareAccounts.js`
 
 ### MotoPress Hotel Booking REST API
@@ -247,5 +250,5 @@ If API fails, Excel files in `/exports` can be manually imported:
 - **Holded is the only write target** - Products, contacts, invoices
 - **Spanish context** - Dates as dd/mm/yyyy, VAT (IVA), Spanish field names in Excel exports
 - **Hotel bookings sync** - By default uses WC_SITE1 credentials if HOTEL_URL not specified
-- **Square payments** - Marked as paid via "Square Balance" payment method; category-to-account mapping in `src/squareAccounts.js`
+- **Square payments** - Marked as paid via payment method based on type (card → "Square Balance", cash → "Square Cash Clearing", other → "Square Other Payments Clearing"); category-to-account mapping in `src/squareAccounts.js`
 
