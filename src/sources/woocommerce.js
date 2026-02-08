@@ -164,6 +164,72 @@ export class WooCommerceClient {
   }
 
   normalizeOrder(wcOrder) {
+    // Build line items from products
+    const items = wcOrder.line_items?.map(item => {
+      const itemTotal = parseFloat(item.total) || 0;
+      let itemTax = parseFloat(item.total_tax) || 0;
+      let taxRate = this.calculateTaxRate(item);
+      let netTotal = itemTotal;
+      let unitPrice = parseFloat(item.price) || 0;
+
+      // If prices include tax but WC reports 0 tax, extract VAT from gross
+      if (this.pricesIncludeTax && itemTax === 0 && itemTotal > 0) {
+        taxRate = this.defaultVatRate;
+        netTotal = itemTotal / (1 + taxRate / 100);
+        itemTax = itemTotal - netTotal;
+        unitPrice = unitPrice / (1 + taxRate / 100);
+      }
+
+      return {
+        sku: item.sku || `${this.prefix}-${item.product_id}`,
+        name: item.name,
+        description: '',
+        quantity: item.quantity,
+        price: unitPrice,  // Unit price without tax
+        total: netTotal,  // Line total without tax
+        totalWithTax: netTotal + itemTax, // Line total WITH tax
+        tax: itemTax,
+        taxRate: taxRate,
+        discount: 0
+      };
+    }) || [];
+
+    // Add shipping as a line item if present
+    const shippingGross = parseFloat(wcOrder.shipping_total) || 0;
+    let shippingTax = parseFloat(wcOrder.shipping_tax) || 0;
+    if (shippingGross > 0 || shippingTax > 0) {
+      // Get shipping method name from shipping_lines, or use default
+      const shippingMethodName = wcOrder.shipping_lines?.[0]?.method_title || 'Envío';
+
+      let shippingNet = shippingGross;
+      let shippingTaxRate = this.defaultVatRate;
+
+      // If WooCommerce reports tax, use it directly
+      if (shippingTax > 0 && shippingGross > 0) {
+        shippingTaxRate = Math.round((shippingTax / shippingGross) * 100);
+        shippingNet = shippingGross;  // WooCommerce shipping_total is already net
+      }
+      // If prices include tax but WC reports 0 tax, extract VAT from gross
+      else if (this.pricesIncludeTax && shippingTax === 0 && shippingGross > 0) {
+        shippingTaxRate = this.defaultVatRate;
+        shippingNet = shippingGross / (1 + shippingTaxRate / 100);
+        shippingTax = shippingGross - shippingNet;
+      }
+
+      items.push({
+        sku: `${this.prefix}-SHIPPING`,
+        name: shippingMethodName,
+        description: '',
+        quantity: 1,
+        price: shippingNet,  // Shipping without tax
+        total: shippingNet,
+        totalWithTax: shippingNet + shippingTax,
+        tax: shippingTax,
+        taxRate: shippingTaxRate,
+        discount: 0
+      });
+    }
+
     return {
       source: 'woocommerce',
       sitePrefix: this.prefix,
@@ -202,18 +268,7 @@ export class WooCommerceClient {
         country: wcOrder.billing?.country || 'ES',
         countryName: this.getCountryName(wcOrder.billing?.country)
       },
-      items: wcOrder.line_items?.map(item => ({
-        sku: item.sku || `${this.prefix}-${item.product_id}`,
-        name: item.name,
-        description: '',
-        quantity: item.quantity,
-        price: parseFloat(item.price),  // Unit price without tax (WooCommerce calculated)
-        total: parseFloat(item.total),  // Line total without tax
-        totalWithTax: parseFloat(item.total) + parseFloat(item.total_tax || 0), // Line total WITH tax
-        tax: parseFloat(item.total_tax) || 0,
-        taxRate: this.calculateTaxRate(item),
-        discount: 0
-      })) || [],
+      items,
       // Mark as unpaid - payments will be synced separately from bank accounts
       paid: false
     };
