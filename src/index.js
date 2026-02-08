@@ -42,8 +42,8 @@ async function main() {
   const hasAnyFlag = args.products || args.sales || args.bookings || args.square;
   const syncProducts = args.products || !hasAnyFlag;
   const syncSales = args.sales || !hasAnyFlag;
-  const syncBookings = args.bookings || !hasAnyFlag;
-  const syncSquare = args.square || args.sales || !hasAnyFlag;  // Square included in --sales and default
+  const syncBookings = args.bookings || args.sales || !hasAnyFlag;  // Bookings included in --sales (they ARE sales)
+  const syncSquare = args.square || args.sales || !hasAnyFlag;      // Square included in --sales and default
   const excelOnly = args['excel-only'];
 
   // Date range for sales
