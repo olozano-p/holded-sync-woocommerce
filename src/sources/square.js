@@ -146,22 +146,50 @@ export class SquareSource {
 
       logger.info(`Fetched ${payments.length} payments from Square`);
 
-      // Fetch order details for payments that have an order_id
-      const normalizedTransactions = [];
+      // Group payments by order_id to avoid duplicate invoices for split bills.
+      // When a group pays "by amount", Square creates one order + N payments all
+      // pointing to the same order_id. We want one invoice per order, not per payment.
+      const orderPayments = new Map(); // order_id -> [payments]
+      const standalonePayments = [];  // payments with no order_id
 
       for (const payment of payments) {
-        let order = null;
-
-        if (payment.order_id) {
-          try {
-            const orderResponse = await this.client.get(`/orders/${payment.order_id}`);
-            order = orderResponse.data.order;
-          } catch (err) {
-            logger.warn(`Could not fetch order ${payment.order_id} for payment ${payment.id}: ${err.message}`);
-          }
+        if (!payment.order_id) {
+          standalonePayments.push(payment);
+          continue;
         }
+        if (!orderPayments.has(payment.order_id)) {
+          orderPayments.set(payment.order_id, []);
+        }
+        orderPayments.get(payment.order_id).push(payment);
+      }
 
-        normalizedTransactions.push(this.normalizeTransaction(payment, order));
+      // Fetch each unique order once
+      const orderCache = new Map();
+      for (const orderId of orderPayments.keys()) {
+        try {
+          const orderResponse = await this.client.get(`/orders/${orderId}`);
+          orderCache.set(orderId, orderResponse.data.order);
+        } catch (err) {
+          logger.warn(`Could not fetch order ${orderId}: ${err.message}`);
+        }
+      }
+
+      const normalizedTransactions = [];
+
+      // One invoice per unique order
+      for (const [orderId, orderPmts] of orderPayments.entries()) {
+        const order = orderCache.get(orderId) || null;
+        if (orderPmts.length > 1) {
+          logger.info(`Order ${orderId} split across ${orderPmts.length} payments - merging into one invoice`);
+        }
+        // Sum amount_money across all payments (excludes tips, which is correct)
+        const totalPaid = orderPmts.reduce((sum, p) => sum + this.convertMoney(p.amount_money), 0);
+        normalizedTransactions.push(this.normalizeTransaction(orderPmts[0], order, totalPaid));
+      }
+
+      // Standalone payments (no order_id) become individual invoices as before
+      for (const payment of standalonePayments) {
+        normalizedTransactions.push(this.normalizeTransaction(payment, null));
       }
 
       return normalizedTransactions;
@@ -183,7 +211,7 @@ export class SquareSource {
    * @param {Object|null} order - Square order object (if available)
    * @returns {Object} Normalized transaction
    */
-  normalizeTransaction(payment, order = null) {
+  normalizeTransaction(payment, order = null, totalPaid = null) {
     // Convert Square's money amounts (in smallest currency unit, e.g., cents) to decimal
     const amount = this.convertMoney(payment.amount_money);
     const tip = this.convertMoney(payment.tip_money);
@@ -247,7 +275,7 @@ export class SquareSource {
       orderNumber: payment.receipt_number || payment.id.substring(0, 12),
       transactionCode: payment.id,
       date: payment.created_at,
-      total: totalWithTax + tip,
+      total: totalPaid !== null ? totalPaid : totalWithTax + tip,
       subtotal: totalWithTax - totalTax,
       tax: totalTax,
       currency: payment.amount_money?.currency || 'EUR',
