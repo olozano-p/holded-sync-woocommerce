@@ -1,4 +1,5 @@
 import WooCommerceRestApi from '@woocommerce/woocommerce-rest-api';
+import axios from 'axios';
 import { logger } from '../utils/logger.js';
 import { config } from '../config.js';
 
@@ -9,12 +10,38 @@ export class WooCommerceClient {
     this.pricesIncludeTax = siteConfig.pricesIncludeTax || false;
     this.defaultVatRate = siteConfig.defaultVatRate || 21;
     this.wpmlLang = siteConfig.wpmlLang || '';
-    this.api = new WooCommerceRestApi.default({
-      url: siteConfig.url,
-      consumerKey: siteConfig.consumerKey,
-      consumerSecret: siteConfig.consumerSecret,
-      version: 'wc/v3'
-    });
+    this.url = siteConfig.url;
+    this.consumerKey = siteConfig.consumerKey;
+    this.consumerSecret = siteConfig.consumerSecret;
+    // LAC's WooCommerce rejects Basic auth over its redirect chain; use query-param auth instead
+    this.useQueryAuth = this.prefix === 'LAC';
+    if (!this.useQueryAuth) {
+      this.api = new WooCommerceRestApi.default({
+        url: siteConfig.url,
+        consumerKey: siteConfig.consumerKey,
+        consumerSecret: siteConfig.consumerSecret,
+        version: 'wc/v3'
+      });
+    }
+  }
+
+  async apiGet(endpoint, params) {
+    if (!this.useQueryAuth) {
+      return this.api.get(endpoint, params);
+    }
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params || {})) {
+      if (value === undefined || value === null) continue;
+      if (Array.isArray(value)) {
+        value.forEach(v => query.append(`${key}[]`, v));
+      } else {
+        query.append(key, value);
+      }
+    }
+    query.append('consumer_key', this.consumerKey);
+    query.append('consumer_secret', this.consumerSecret);
+    const base = this.url.replace(/\/$/, '');
+    return axios.get(`${base}/wp-json/wc/v3/${endpoint}?${query.toString()}`);
   }
 
   async getAllProducts() {
@@ -34,7 +61,7 @@ export class WooCommerceClient {
         if (this.wpmlLang) {
           params.lang = this.wpmlLang;
         }
-        const response = await this.api.get('products', params);
+        const response = await this.apiGet('products', params);
         
         products.push(...response.data);
         
@@ -88,7 +115,7 @@ export class WooCommerceClient {
         if (this.wpmlLang) {
           params.lang = this.wpmlLang;
         }
-        const response = await this.api.get('orders', params);
+        const response = await this.apiGet('orders', params);
 
         // Break if no data returned
         if (!response.data || response.data.length === 0) {
